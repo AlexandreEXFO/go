@@ -363,7 +363,7 @@ func forEachSAN(der cryptobyte.String, callback func(tag int, data []byte) error
 		if !der.ReadAnyASN1(&san, &tag) {
 			return errors.New("x509: invalid subject alternative name")
 		}
-		if err := callback(int(tag^0x80), san); err != nil {
+		if err := callback(int(tag&0x1f), san); err != nil {
 			return err
 		}
 	}
@@ -371,7 +371,7 @@ func forEachSAN(der cryptobyte.String, callback func(tag int, data []byte) error
 	return nil
 }
 
-func parseSANExtension(der cryptobyte.String) (dnsNames, emailAddresses []string, ipAddresses []net.IP, uris []*url.URL, err error) {
+func parseSANExtension(der cryptobyte.String) (dnsNames, emailAddresses []string, ipAddresses []net.IP, uris []*url.URL, directories []pkix.Name, err error) {
 	err = forEachSAN(der, func(tag int, data []byte) error {
 		switch tag {
 		case nameTypeEmail:
@@ -386,6 +386,14 @@ func parseSANExtension(der cryptobyte.String) (dnsNames, emailAddresses []string
 				return errors.New("x509: SAN dNSName is malformed")
 			}
 			dnsNames = append(dnsNames, string(name))
+		case nameTypeDirectory:
+			var rdns pkix.RDNSequence
+			if _, err := asn1.Unmarshal(data, &rdns); err != nil {
+				return errors.New("x509: SAN directoryName is malformed")
+			}
+			var directory pkix.Name
+			directory.FillFromRDNSequence(&rdns)
+			directories = append(directories, directory)
 		case nameTypeURI:
 			uriStr := string(data)
 			if err := isIA5String(uriStr); err != nil {
@@ -686,7 +694,7 @@ func processExtensions(out *Certificate) error {
 				out.BasicConstraintsValid = true
 				out.MaxPathLenZero = out.MaxPathLen == 0
 			case 17:
-				out.DNSNames, out.EmailAddresses, out.IPAddresses, out.URIs, err = parseSANExtension(e.Value)
+				out.DNSNames, out.EmailAddresses, out.IPAddresses, out.URIs, out.Directories, err = parseSANExtension(e.Value)
 				if err != nil {
 					return err
 				}

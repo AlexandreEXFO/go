@@ -1567,7 +1567,7 @@ func marshalAndParseCSR(t *testing.T, template *CertificateRequest) *Certificate
 }
 
 func TestCertificateRequestOverrides(t *testing.T) {
-	sanContents, err := marshalSANs([]string{"foo.example.com"}, nil, nil, nil)
+	sanContents, err := marshalSANs([]string{"foo.example.com"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1629,7 +1629,7 @@ func TestCertificateRequestOverrides(t *testing.T) {
 		t.Errorf("bad attributes: %#v\n", csr.Attributes)
 	}
 
-	sanContents2, err := marshalSANs([]string{"foo2.example.com"}, nil, nil, nil)
+	sanContents2, err := marshalSANs([]string{"foo2.example.com"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

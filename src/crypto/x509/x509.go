@@ -770,6 +770,7 @@ type Certificate struct {
 	EmailAddresses []string
 	IPAddresses    []net.IP
 	URIs           []*url.URL
+	Directories    []pkix.Name
 
 	// Name constraints
 	PermittedDNSDomainsCritical bool // if true then the name constraints are marked critical.
@@ -1053,10 +1054,11 @@ type policyInformation struct {
 }
 
 const (
-	nameTypeEmail = 1
-	nameTypeDNS   = 2
-	nameTypeURI   = 6
-	nameTypeIP    = 7
+	nameTypeEmail     = 1
+	nameTypeDNS       = 2
+	nameTypeDirectory = 4
+	nameTypeURI       = 6
+	nameTypeIP        = 7
 )
 
 // RFC 5280, 4.2.2.1
@@ -1137,7 +1139,7 @@ func oidInExtensions(oid asn1.ObjectIdentifier, extensions []pkix.Extension) boo
 
 // marshalSANs marshals a list of addresses into a the contents of an X.509
 // SubjectAlternativeName extension.
-func marshalSANs(dnsNames, emailAddresses []string, ipAddresses []net.IP, uris []*url.URL) (derBytes []byte, err error) {
+func marshalSANs(dnsNames, emailAddresses []string, ipAddresses []net.IP, uris []*url.URL, directories []pkix.Name) (derBytes []byte, err error) {
 	var rawValues []asn1.RawValue
 	for _, name := range dnsNames {
 		if err := isIA5String(name); err != nil {
@@ -1165,6 +1167,14 @@ func marshalSANs(dnsNames, emailAddresses []string, ipAddresses []net.IP, uris [
 			return nil, err
 		}
 		rawValues = append(rawValues, asn1.RawValue{Tag: nameTypeURI, Class: 2, Bytes: []byte(uriStr)})
+	}
+	for _, directory := range directories {
+		rdns := directory.ToRDNSequence()
+		bytes, err := asn1.Marshal(rdns)
+		if err != nil {
+			return nil, err
+		}
+		rawValues = append(rawValues, asn1.RawValue{Tag: nameTypeDirectory, Class: 2, Bytes: []byte(bytes)})
 	}
 	return asn1.Marshal(rawValues)
 }
@@ -1260,7 +1270,7 @@ func buildCertExtensions(template *Certificate, subjectIsEmpty bool, authorityKe
 		// “If the subject field contains an empty sequence ... then
 		// subjectAltName extension ... is marked as critical”
 		ret[n].Critical = subjectIsEmpty
-		ret[n].Value, err = marshalSANs(template.DNSNames, template.EmailAddresses, template.IPAddresses, template.URIs)
+		ret[n].Value, err = marshalSANs(template.DNSNames, template.EmailAddresses, template.IPAddresses, template.URIs, template.Directories)
 		if err != nil {
 			return
 		}
@@ -1492,7 +1502,7 @@ func buildCSRExtensions(template *CertificateRequest) ([]pkix.Extension, error) 
 
 	if (len(template.DNSNames) > 0 || len(template.EmailAddresses) > 0 || len(template.IPAddresses) > 0 || len(template.URIs) > 0) &&
 		!oidInExtensions(oidExtensionSubjectAltName, template.ExtraExtensions) {
-		sanBytes, err := marshalSANs(template.DNSNames, template.EmailAddresses, template.IPAddresses, template.URIs)
+		sanBytes, err := marshalSANs(template.DNSNames, template.EmailAddresses, template.IPAddresses, template.URIs, template.Directories)
 		if err != nil {
 			return nil, err
 		}
@@ -1931,7 +1941,9 @@ type CertificateRequest struct {
 	DNSNames       []string
 	EmailAddresses []string
 	IPAddresses    []net.IP
+	
 	URIs           []*url.URL
+	Directories    []pkix.Name
 }
 
 // These structures reflect the ASN.1 structure of X.509 certificate
@@ -2246,7 +2258,7 @@ func parseCertificateRequest(in *certificateRequest) (*CertificateRequest, error
 	for _, extension := range out.Extensions {
 		switch {
 		case extension.Id.Equal(oidExtensionSubjectAltName):
-			out.DNSNames, out.EmailAddresses, out.IPAddresses, out.URIs, err = parseSANExtension(extension.Value)
+			out.DNSNames, out.EmailAddresses, out.IPAddresses, out.URIs, out.Directories, err = parseSANExtension(extension.Value)
 			if err != nil {
 				return nil, err
 			}
