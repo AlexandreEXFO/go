@@ -782,6 +782,8 @@ type Certificate struct {
 	ExcludedEmailAddresses      []string
 	PermittedURIDomains         []string
 	ExcludedURIDomains          []string
+	PermittedDirectories        []pkix.RDNSequence
+	ExcludedDirectories         []pkix.RDNSequence
 
 	// CRL Distribution Points
 	CRLDistributionPoints []string
@@ -1290,7 +1292,8 @@ func buildCertExtensions(template *Certificate, subjectIsEmpty bool, authorityKe
 	if (len(template.PermittedDNSDomains) > 0 || len(template.ExcludedDNSDomains) > 0 ||
 		len(template.PermittedIPRanges) > 0 || len(template.ExcludedIPRanges) > 0 ||
 		len(template.PermittedEmailAddresses) > 0 || len(template.ExcludedEmailAddresses) > 0 ||
-		len(template.PermittedURIDomains) > 0 || len(template.ExcludedURIDomains) > 0) &&
+		len(template.PermittedURIDomains) > 0 || len(template.ExcludedURIDomains) > 0 ||
+		len(template.PermittedDirectories) > 0 || len(template.ExcludedDirectories) > 0) &&
 		!oidInExtensions(oidExtensionNameConstraints, template.ExtraExtensions) {
 		ret[n].Id = oidExtensionNameConstraints
 		ret[n].Critical = template.PermittedDNSDomainsCritical
@@ -1303,7 +1306,7 @@ func buildCertExtensions(template *Certificate, subjectIsEmpty bool, authorityKe
 			return ipAndMask
 		}
 
-		serialiseConstraints := func(dns []string, ips []*net.IPNet, emails []string, uriDomains []string) (der []byte, err error) {
+		serialiseConstraints := func(dns []string, ips []*net.IPNet, emails []string, uriDomains []string, directories []pkix.RDNSequence) (der []byte, err error) {
 			var b cryptobyte.Builder
 
 			for _, name := range dns {
@@ -1350,15 +1353,28 @@ func buildCertExtensions(template *Certificate, subjectIsEmpty bool, authorityKe
 				})
 			}
 
+			for _, directory := range directories {
+				bytes, err := asn1.Marshal(directory)
+				if err != nil {
+					return nil, err
+				}
+
+				b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) {
+					b.AddASN1(cryptobyte_asn1.Tag(4).ContextSpecific().Constructed(), func(b *cryptobyte.Builder) {
+						b.AddBytes(bytes)
+					})
+				})
+			}
+
 			return b.Bytes()
 		}
 
-		permitted, err := serialiseConstraints(template.PermittedDNSDomains, template.PermittedIPRanges, template.PermittedEmailAddresses, template.PermittedURIDomains)
+		permitted, err := serialiseConstraints(template.PermittedDNSDomains, template.PermittedIPRanges, template.PermittedEmailAddresses, template.PermittedURIDomains, template.PermittedDirectories)
 		if err != nil {
 			return nil, err
 		}
 
-		excluded, err := serialiseConstraints(template.ExcludedDNSDomains, template.ExcludedIPRanges, template.ExcludedEmailAddresses, template.ExcludedURIDomains)
+		excluded, err := serialiseConstraints(template.ExcludedDNSDomains, template.ExcludedIPRanges, template.ExcludedEmailAddresses, template.ExcludedURIDomains, template.ExcludedDirectories)
 		if err != nil {
 			return nil, err
 		}
@@ -1621,8 +1637,10 @@ var emptyASN1Subject = []byte{0x30, 0}
 //   - AuthorityKeyId
 //   - BasicConstraintsValid
 //   - CRLDistributionPoints
+//   - Directories
 //   - DNSNames
 //   - EmailAddresses
+//   - ExcludedDirectories
 //   - ExcludedDNSDomains
 //   - ExcludedEmailAddresses
 //   - ExcludedIPRanges
@@ -1638,6 +1656,7 @@ var emptyASN1Subject = []byte{0x30, 0}
 //   - NotAfter
 //   - NotBefore
 //   - OCSPServer
+//   - PermittedDirectories
 //   - PermittedDNSDomains
 //   - PermittedDNSDomainsCritical
 //   - PermittedEmailAddresses
@@ -1941,7 +1960,6 @@ type CertificateRequest struct {
 	DNSNames       []string
 	EmailAddresses []string
 	IPAddresses    []net.IP
-	
 	URIs           []*url.URL
 	Directories    []pkix.Name
 }
